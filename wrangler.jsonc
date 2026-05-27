@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "distritec-album",
+  "compatibility_date": "2026-05-27",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "distritec-album"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
