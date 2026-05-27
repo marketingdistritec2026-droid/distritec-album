@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Álbum Digital Distritec 2026</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+
+<!-- ========== LOGIN ========== -->
+<div id="loginScreen" class="screen">
+  <div class="login-wrap">
+    <div class="login-logo">
+      <div class="trophy">🏆</div>
+      <div class="brand">DISTRITEC</div>
+      <div class="brand-sub">Álbum Digital 2026</div>
+    </div>
+    <div class="login-card">
+      <h2>INGRESA AL ÁLBUM</h2>
+      <p>Escribe tu número de cédula</p>
+      <input type="text" id="cedulaInput" placeholder="Número de cédula" maxlength="12" />
+      <button id="loginBtn">ABRIR ÁLBUM →</button>
+      <div id="loginError" class="error hidden">Cédula no encontrada. Intenta de nuevo.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== ÁLBUM PRINCIPAL ========== -->
+<div id="albumScreen" class="screen hidden">
+
+  <header class="app-header">
+    <div class="header-logo">DISTRITEC</div>
+    <div class="header-user">
+      <div class="avatar" id="headerAvatar">--</div>
+      <div>
+        <div class="user-name" id="headerName">Colaborador</div>
+        <div class="user-team" id="headerTeam">Grupo --</div>
+      </div>
+      <button class="btn-logout" id="logoutBtn">Salir</button>
+    </div>
+  </header>
+
+  <div class="progress-bar-wrap">
+    <span class="prog-label">PROGRESO</span>
+    <div class="prog-track">
+      <div class="prog-fill" id="progFill" style="width:0%"></div>
+    </div>
+    <span class="prog-count" id="progCount">0 / 198</span>
+  </div>
+
+  <nav class="album-tabs" id="albumTabs"></nav>
+
+  <main class="album-main" id="albumMain"></main>
+
+</div>
+
+<!-- ========== OVERLAY SOBRE ========== -->
+<div id="sobreOverlay" class="overlay hidden">
+  <div class="sobre-box">
+    <div class="sobre-emoji" id="sobreEmoji">📦</div>
+    <div class="sobre-title" id="sobreTitle">ABRIENDO SOBRE...</div>
+    <div class="sobre-sub" id="sobreSub">Preparando tus láminas</div>
+    <div class="laminas-reveal hidden" id="laminasReveal"></div>
+    <button class="btn-cerrar hidden" id="btnCerrarSobre">CONTINUAR →</button>
+  </div>
+</div>
+
+<script type="module">
+import { loginPorCedula, getUsuarioActual, cerrarSesion, getColeccion, getTodosColaboradores, validarCodigo } from './js/supabase.js'
+import { abrirSobre, getInicialesNombre, getLabelTipo } from './js/motor.js'
+
+const GRUPOS = [
+  {id:'A',name:'Colombia',flag:'🇨🇴'},{id:'B',name:'Brasil',flag:'🇧🇷'},
+  {id:'C',name:'Argentina',flag:'🇦🇷'},{id:'D',name:'España',flag:'🇪🇸'},
+  {id:'E',name:'Mexico',flag:'🇲🇽'},{id:'F',name:'Peru',flag:'🇵🇪'},
+  {id:'G',name:'Uruguay',flag:'🇺🇾'},{id:'H',name:'Venezuela',flag:'🇻🇪'},
+  {id:'I',name:'Ecuador',flag:'🇪🇨'},{id:'J',name:'Chile',flag:'🇨🇱'},
+  {id:'K',name:'Portugal',flag:'🇵🇹'},{id:'L',name:'Francia',flag:'🇫🇷'},
+  {id:'M',name:'Alemania',flag:'🇩🇪'},{id:'N',name:'Italia',flag:'🇮🇹'},
+  {id:'O',name:'EE.UU.',flag:'🇺🇸'},{id:'P',name:'Japon',flag:'🇯🇵'},
+  {id:'Q',name:'Corea',flag:'🇰🇷'},{id:'R',name:'Marruecos',flag:'🇲🇦'},
+]
+
+let STATE = { user: null, coleccion: new Set(), todos: [], tabActual: 'A' }
+
+// ---- LOGIN ----
+document.getElementById('loginBtn').onclick = async () => {
+  const cedula = document.getElementById('cedulaInput').value.trim()
+  if (!cedula) return
+  document.getElementById('loginBtn').textContent = 'Cargando...'
+  const res = await loginPorCedula(cedula)
+  if (!res.ok) {
+    document.getElementById('loginError').classList.remove('hidden')
+    document.getElementById('loginBtn').textContent = 'ABRIR ÁLBUM →'
+    return
+  }
+  STATE.user = res.colaborador
+  await cargarAlbum()
+}
+
+document.getElementById('cedulaInput').addEventListener('keypress', e => {
+  if (e.key === 'Enter') document.getElementById('loginBtn').click()
+})
+
+document.getElementById('logoutBtn').onclick = () => cerrarSesion()
+
+// ---- CARGAR ÁLBUM ----
+async function cargarAlbum() {
+  const [colRes, todosRes] = await Promise.all([
+    getColeccion(STATE.user.cedula),
+    getTodosColaboradores()
+  ])
+  if (colRes.ok) STATE.coleccion = new Set(colRes.data.map(c => c.lamina_id))
+  if (todosRes.ok) STATE.todos = todosRes.data
+
+  document.getElementById('loginScreen').classList.add('hidden')
+  document.getElementById('albumScreen').classList.remove('hidden')
+
+  const ini = getInicialesNombre(STATE.user.nombre)
+  document.getElementById('headerAvatar').textContent = ini
+  document.getElementById('headerName').textContent = STATE.user.nombre.split(' ').slice(0,2).join(' ')
+  document.getElementById('headerTeam').textContent = 'Grupo ' + STATE.user.grupo
+
+  renderTabs()
+  renderProgreso()
+  renderGrupo(STATE.tabActual)
+}
+
+// ---- TABS ----
+function renderTabs() {
+  const nav = document.getElementById('albumTabs')
+  nav.innerHTML = ''
+  const tabs = [
+    ...GRUPOS.map(g => ({ id: g.id, label: g.flag + ' ' + g.id })),
+    { id: 'CANJEAR', label: '🎁 Canjear' },
+    { id: 'INTERCAMBIO', label: '🔄 Intercambio' },
+  ]
+  tabs.forEach(t => {
+    const btn = document.createElement('button')
+    btn.className = 'tab-btn' + (t.id === STATE.tabActual ? ' active' : '')
+    btn.textContent = t.label
+    btn.onclick = () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      STATE.tabActual = t.id
+      if (t.id === 'CANJEAR') renderCanjear()
+      else if (t.id === 'INTERCAMBIO') renderIntercambio()
+      else renderGrupo(t.id)
+    }
+    nav.appendChild(btn)
+  })
+}
+
+// ---- PROGRESO ----
+function renderProgreso() {
+  const total = 198
+  const n = STATE.coleccion.size
+  const pct = Math.round((n / total) * 100)
+  document.getElementById('progFill').style.width = pct + '%'
+  document.getElementById('progCount').textContent = n + ' / ' + total
+}
+
+// ---- GRUPO ----
+function renderGrupo(gid) {
+  const g = GRUPOS.find(x => x.id === gid)
+  const jugadores = STATE.todos.filter(p => p.grupo === gid)
+  const enGrupo = jugadores.filter(p => STATE.coleccion.has(p.id)).length
+
+  let html = `
+    <div class="team-header">
+      <div class="team-flag">${g.flag}</div>
+      <div class="team-info">
+        <h2>GRUPO ${g.id} · ${g.name.toUpperCase()}</h2>
+        <p>${jugadores[0]?.ciudad || ''}</p>
+      </div>
+      <div class="team-count">${enGrupo}/11</div>
+    </div>
+    <div class="sticker-grid">
+  `
+  jugadores.forEach(p => {
+    const tiene = STATE.coleccion.has(p.id)
+    const esLider = p.categoria === 'LIDER'
+    if (tiene) {
+      html += `
+        <div class="sticker-slot filled ${esLider ? 'holo' : ''}">
+          <div class="st-top">
+            <span class="st-num">${p.num_lamina}</span>
+            <span class="st-cat ${p.categoria.toLowerCase()}">${p.categoria}</span>
+          </div>
+          <div class="st-photo">${getInicialesNombre(p.nombre)}</div>
+          <div class="st-info">
+            <div class="st-name">${p.nombre.split(' ').slice(0,2).join(' ')}</div>
+            <div class="st-cargo">${p.cargo}</div>
+            <div class="st-ciudad">${p.ciudad}</div>
+          </div>
+        </div>`
+    } else {
+      html += `
+        <div class="sticker-slot empty">
+          <span class="st-empty-num">${p.num_lamina}</span>
+          <span class="st-lock">🔒</span>
+        </div>`
+    }
+  })
+  html += '</div>'
+  document.getElementById('albumMain').innerHTML = html
+}
+
+// ---- CANJEAR ----
+function renderCanjear() {
+  document.getElementById('albumMain').innerHTML = `
+    <div class="canjear-wrap">
+      <h2>CANJEAR CÓDIGO</h2>
+      <p>Ingresa el código que recibiste de Talento Humano</p>
+      <div class="code-row">
+        <input type="text" id="codigoInput" placeholder="XXXXXXXX" maxlength="10" />
+        <button id="btnCanjear">ABRIR SOBRE 🎁</button>
+      </div>
+      <div id="canjearError" class="error hidden"></div>
+      <div class="como-funciona">
+        <h3>¿Cómo funciona?</h3>
+        <ol>
+          <li>Recibe tu código semanal por WhatsApp de Talento Humano</li>
+          <li>Ingrésalo aquí — solo tú puedes usarlo</li>
+          <li>Se abre un sobre con <strong>7 láminas sorpresa</strong></li>
+          <li>Las láminas repetidas las puedes intercambiar con otras sedes</li>
+        </ol>
+      </div>
+    </div>
+  `
+  document.getElementById('btnCanjear').onclick = async () => {
+    const token = document.getElementById('codigoInput').value.trim().toUpperCase()
+    if (token.length < 4) return
+    const errEl = document.getElementById('canjearError')
+    errEl.classList.add('hidden')
+    document.getElementById('btnCanjear').textContent = 'Validando...'
+
+    const val = await validarCodigo(token, STATE.user.cedula)
+    if (!val.ok) {
+      errEl.textContent = val.error
+      errEl.classList.remove('hidden')
+      document.getElementById('btnCanjear').textContent = 'ABRIR SOBRE 🎁'
+      return
+    }
+    mostrarSobre(token)
+  }
+}
+
+// ---- SOBRE ANIMADO ----
+async function mostrarSobre(token) {
+  const overlay = document.getElementById('sobreOverlay')
+  overlay.classList.remove('hidden')
+  document.getElementById('sobreEmoji').textContent = '📦'
+  document.getElementById('sobreTitle').textContent = 'ABRIENDO SOBRE...'
+  document.getElementById('sobreSub').textContent = 'Preparando tus 7 láminas'
+  document.getElementById('laminasReveal').classList.add('hidden')
+  document.getElementById('btnCerrarSobre').classList.add('hidden')
+
+  const res = await abrirSobre(token, STATE.user.cedula)
+
+  setTimeout(() => {
+    if (!res.ok) {
+      document.getElementById('sobreTitle').textContent = '¡Ups!'
+      document.getElementById('sobreSub').textContent = res.error
+      document.getElementById('btnCerrarSobre').classList.remove('hidden')
+      return
+    }
+
+    document.getElementById('sobreEmoji').textContent = '✨'
+    document.getElementById('sobreTitle').textContent = '¡' + res.stats.nuevas + ' LÁMINAS NUEVAS!'
+    document.getElementById('sobreSub').textContent = res.stats.repetidas + ' repetidas para intercambiar'
+
+    const grid = document.getElementById('laminasReveal')
+    grid.innerHTML = res.laminas.map(l => `
+      <div class="rev-card ${l.tipo}">
+        <div class="rev-ini">${getInicialesNombre(l.nombre)}</div>
+        <div class="rev-nombre">${l.nombre.split(' ').slice(0,2).join(' ')}</div>
+        <div class="rev-cargo">${l.cargo}</div>
+        <div class="rev-ciudad">${l.ciudad}</div>
+        <div class="rev-tipo">${getLabelTipo(l.tipo)}</div>
+      </div>
+    `).join('')
+
+    grid.classList.remove('hidden')
+    document.getElementById('btnCerrarSobre').classList.remove('hidden')
+
+    // Actualizar colección local
+    res.laminas.forEach(l => STATE.coleccion.add(l.id))
+    renderProgreso()
+  }, 1500)
+
+  document.getElementById('btnCerrarSobre').onclick = () => {
+    overlay.classList.add('hidden')
+    renderGrupo(STATE.user.grupo)
+    STATE.tabActual = STATE.user.grupo
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      b.classList.toggle('active', b.textContent.includes(STATE.user.grupo))
+    })
+  }
+}
+
+// ---- INTERCAMBIO ----
+function renderIntercambio() {
+  document.getElementById('albumMain').innerHTML = `
+    <div class="canjear-wrap">
+      <h2>INTERCAMBIO DE LÁMINAS</h2>
+      <p>Próximamente — Sistema de intercambio entre sedes</p>
+      <div class="como-funciona">
+        <h3>¿Cómo funcionará?</h3>
+        <ol>
+          <li>Publica tus láminas repetidas como disponibles</li>
+          <li>Ve qué colaboradores de otras sedes tienen las que te faltan</li>
+          <li>Solicita un intercambio — ellos reciben tu notificación</li>
+          <li>Al aceptar, las láminas se transfieren automáticamente</li>
+        </ol>
+      </div>
+    </div>
+  `
+}
+
+// ---- AUTO LOGIN si hay sesión guardada ----
+const userGuardado = getUsuarioActual()
+if (userGuardado) {
+  STATE.user = userGuardado
+  cargarAlbum()
+}
+</script>
+</body>
+</html>
